@@ -1,0 +1,85 @@
+covariate;-log2(p)
+donor_related_Related;3
+prim_disease_hct_NHL;7
+hepatic_mild;12
+melphalan_dose_missing;15
+sex_match_missing;20
+ID;28
+hla_low_res_6;28
+prim_disease_hct_MPN;33
+ethnicity;39
+hla_match_dqb1_low;49
+hla_match_c_low;67
+hla_match_dqb1_high;83
+tbi_status_TBI +- Other -cGy fractionated;104
+tce_match;106
+rituximab;113
+hla_match_c_high_1.0;115
+hla_match_a_low;125
+prior_tumor;135
+melphalan_dose_N/A Mel not given;145
+prim_disease_hct_Other acute leukemia;146
+prim_disease_hct_ALL;154
+tbi_status_TBI +- Other -cGy unknown dose;182
+prim_disease_hct_AML;197
+tce_imm_match;207
+prim_disease_hct_Solid tumor;264
+prim_disease_hct_IMD;265
+hla_match_c_high_2.0;267
+arrhythmia;273
+donor_related_Unrelated;275
+tbi_status_TBI +- Other -cGy single;287
+obesity;309
+sex_match_M-M;310
+tbi_status_TBI +- Other >cGy;324
+prim_disease_hct_CML;335
+prim_disease_hct_MDS;360
+tbi_status_TBI +- Other unknown dose;407
+hla_low_res_10;412
+donor_related_missing;447
+prim_disease_hct_IPA;465
+prim_disease_hct_SAA;510
+hla_high_res_8;544
+donor_age;570
+renal_issue;579
+hla_low_res_8;587
+peptic_ulcer;666
+hla_match_b_high;669
+hla_high_res_6;678
+hla_high_res_10;679
+vent_hist;695
+hla_match_drb1_low;710
+graft_type;767
+prod_type;767
+prim_disease_hct_Other leukemia;797
+prim_disease_hct_HD;872
+hla_nmdp_6;885
+conditioning_intensity;885
+hla_match_a_high;939
+psych_disturb;950
+rheum_issue;1018
+pulm_moderate;1032
+hla_match_b_low;1180
+prim_disease_hct_PCD;1308
+tce_div_match;1839
+tbi_status_TBI + Cy +- Other;1847
+in_vivo_tcd;2225
+diabetes;2286
+hepatic_severe;2494
+cmv_status;2592
+cyto_score_detail;3065
+tbi_status_TBI +- Other <=cGy;3715
+prim_disease_hct_HIS;3749
+cyto_score;3838
+prim_disease_hct_IEA;3850
+prim_disease_hct_IIS;3855
+age_at_hct;3857
+karnofsky_score;4469
+sex_match_M-F;5240
+pulm_severe;5588
+cardiac;7669
+dri_score;8208
+gvhd_proph;9113
+sex_match_F-M;11161
+year_hct;13483
+comorbidity_score;17220
