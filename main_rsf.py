@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import os
+
+from sklearn.feature_selection import SelectFromModel
 from sklearn.model_selection import train_test_split
 from sksurv.ensemble import RandomSurvivalForest
 import pandas.api.types
@@ -328,7 +330,10 @@ def get_dfs():
     df[col] = df[col].fillna(df[col].median())
 
     #race_group
-    #df = one_hot_encoding(df,col)
+    col = 'race_group'
+
+    race_dummies = pd.get_dummies(df['race_group'], prefix='race', dtype=int)
+    df = pd.concat([df, race_dummies], axis=1)
 
     #comorbidity_score
     col = 'comorbidity_score'
@@ -428,12 +433,25 @@ def predict2(model, xdata):
     return model.predict(xdata.drop(['ID','efs','efs_time','race_group'],axis=1))
 
 def train(model, xtrain ,weights=None):
+    print('training '+ str(xtrain.shape[0]) + ' lines')
     ytrain = np.array([(bool(e), t) for e, t in zip(xtrain["efs"], xtrain["efs_time"])],
                        dtype=[("event", "bool"), ("time", "float")])
 
     model.fit(xtrain.drop(['ID','efs','efs_time','race_group'],axis=1),ytrain,sample_weight=weights)
     return model
 
+def create_model(n_estimators=100, max_depth=10,min_samples_split=10,min_samples_leaf=5,n_jobs=1):
+    model = RandomSurvivalForest(
+        n_estimators=n_estimators,
+        max_depth = max_depth,  # Limitar profundidad para evitar overfitting
+        min_samples_split=min_samples_split,
+        min_samples_leaf=min_samples_leaf,
+        n_jobs=n_jobs,
+        random_state=42,
+        low_memory=True
+    )
+
+    return model
 
 def get_score(x, prediction):
     prediction = pd.DataFrame({
@@ -444,86 +462,49 @@ def get_score(x, prediction):
     return score(x.copy(),prediction,'ID')
 
 
-def main():
-    pd.reset_option('display.max_rows')
-    pd.reset_option('display.max_columns')
 
-    print('Cargando y diviendo datos....')
-    X, X_submit = get_dfs()
-    X_train, X_valid = train_test_split(X, test_size=0.2, random_state=42)
+import pandas as pd
+import numpy as np
+from sksurv.ensemble import RandomSurvivalForest
+from sklearn.inspection import permutation_importance
 
+def get_relevant_features(df_train, threshold=0.01):
+    print('returning relevant features...')
+    # Crear copia para no modificar el original
+    df_copy = df_train.copy()
 
+    # Columnas que siempre deben estar incluidas
+    mandatory_columns = ['ID', 'efs', 'efs_time'] + [col for col in df_copy.columns if col.startswith('race_')]
 
+    # Eliminar `race_group` del análisis ya que es una variable string
+    df_copy = df_copy.drop(columns=['race_group'], errors='ignore')
 
-    '''
-    with open("log3.txt", "a") as archivo:
-        archivo.write("Starting...\n")
+    # Seleccionar solo columnas numéricas para el análisis
+    numeric_features = df_copy.select_dtypes(include=[np.number]).drop(columns=mandatory_columns, errors='ignore')
 
-    print('Entrenando modelo con '+ str(len(X_train.columns)) + ' columnas')
-    rsf = RandomSurvivalForest(n_estimators=100, n_jobs=8, random_state=42,low_memory=True)
-    rsf = train(rsf, X_train)
-    prediction = predict2(rsf,X_valid)
-    last_score = get_score(X_valid, prediction)
+    # Crear el vector objetivo (evento y tiempo de supervivencia)
+    y = np.array([(e, t) for e, t in zip(df_copy['efs'], df_copy['efs_time'])],
+                 dtype=[('event', 'bool'), ('time', 'float')])
 
-    for col in features_to_remove:
-        print('La prediction actual es: ' + str(last_score))
-        print('Evaluando columna '+col)
+    # Entrenar un modelo de Random Survival Forest solo con variables numéricas
+    rsf = RandomSurvivalForest(n_estimators=100, n_jobs=-1, random_state=42, low_memory=True)
+    rsf.fit(numeric_features, y)
 
-        if col in X_train.columns:
-            print("La columna existe, vamos a eliminarla y ver el comportamiento")
-            print('Entrenando modelo con ' + str(len(X_train.columns)-1) + ' columnas')
-            rsf = train(rsf, X_train.drop(col,axis=1))
-            prediction = predict2(rsf, X_valid.drop(col,axis=1))
-            actual_score = get_score(X_valid.drop(col,axis=1), prediction)
-            print('Sin la columna '+col+ 'el risk score es ' +str(actual_score))
+    # Usar permutation importance para obtener la importancia de las características
+    perm_importance = permutation_importance(rsf, numeric_features, y, n_repeats=5, random_state=42, n_jobs=-1)
 
-            if actual_score>=last_score:
-                print("El modelo mejora eliminando "+col+". La eliminamos definitivamente")
+    # Obtener importancia de características
+    feature_importances = pd.Series(perm_importance.importances_mean, index=numeric_features.columns)
 
+    # Ordenar por importancia
+    feature_importances = feature_importances.sort_values(ascending=False)
 
-                with open("log3.txt", "a") as archivo:
-                    archivo.write("Eliminando "+ col +"\n")
+    # Seleccionar columnas más relevantes según el umbral
+    relevant_columns = feature_importances[feature_importances >= threshold].index.tolist()
 
-                X_train = X_train.drop(col,axis=1)
-                X_valid = X_valid.drop(col,axis=1)
-                last_score = actual_score
-            else:
-                print("El modelo empeora eliminando " + col + ". La dejamos")
-    else:
-            print("La columna no existe")
+    # Incluir siempre las columnas obligatorias
+    relevant_columns = list(set(relevant_columns + mandatory_columns))
 
-    '''
+    print("\nColumnas más relevantes para el modelo:", relevant_columns)
 
-
-    print('Training, predicting and scoring.....')
-    rsf = RandomSurvivalForest(n_estimators=100, n_jobs=8, random_state=42,low_memory=True)
-    rsf = train(rsf, X_train)
-    prediction = predict2(rsf,X_valid)
-    scoring = get_score(X_valid,prediction)
-    print('scoring',scoring)
-
-    print('Training with all files and predicting with 3 contest')
-    rsf = RandomSurvivalForest(n_estimators=1000, n_jobs=8, random_state=42,low_memory=True)
-    rsf = train(rsf, X)
-    prediction = predict2(rsf, X_submit)
-
-
-
-    ids=X_submit['ID']
-    y_submit = np.array([(bool(event), time) for event, time in zip(X_submit["efs"], X_submit["efs_time"])],
-                 dtype=[("event", "bool"), ("time", "float")])
-
-    X_submit = X_submit.drop(['ID','race_group','efs','efs_time'],axis=1)
-
-
-
-    submit_prediction = pd.DataFrame({
-        'ID': ids,
-        'prediction': prediction
-    })
-
-    submit_prediction.to_csv('submission.csv',index=False)
-
-
-if __name__ == "__main__":
-    main()
+    return relevant_columns
