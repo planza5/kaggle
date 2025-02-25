@@ -2,39 +2,30 @@ from sklearn.feature_selection import SelectFromModel
 from sklearn.model_selection import StratifiedKFold
 import pandas as pd
 import main_rsf  # Importar módulo externo
-
+import numpy as np
 
 def get_fair_kfolds(df_train, n_splits=5):
-    # Hacer una copia del DataFrame para no modificar el original
     df_copy = df_train.copy()
-
-    # Convertir efs_time a años
-    df_copy['efs_time_years'] = df_copy['efs_time'] / 12
-
-    # Crear bins de tiempo basados en los cuartiles reales
-    bins = [0, df_copy['efs_time_years'].quantile(0.25), df_copy['efs_time_years'].quantile(0.50),
-            df_copy['efs_time_years'].quantile(0.75), df_copy['efs_time_years'].max()]
-    labels = ['Q1', 'Q2', 'Q3', 'Q4']
-    df_copy['time_bin_real'] = pd.cut(df_copy['efs_time_years'], bins=bins, labels=labels, include_lowest=True)
-
-    # Crear la variable de estratificación combinando evento y tiempo bineado
-    df_copy['strata'] = df_copy['efs'].astype(str) + "_" + df_copy['time_bin_real'].astype(str)
-
-    # Aplicar validación cruzada estratificada con `strata`
+    # Estratificar por efs Y race_group
+    df_copy['strata'] = df_copy['efs'].astype(str) + '_' + df_copy['race_group'].astype(str)
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
-
-    # Generar los folds con solo los índices para ahorrar memoria
     folds = []
     for train_idx, test_idx in skf.split(df_copy, df_copy['strata']):
         folds.append({'train_idx': train_idx, 'test_idx': test_idx})
-
     return folds
+
+def get_balanced_weights(train_df):
+    race_counts = train_df['race_group'].value_counts()
+    # Raíz cuadrada para suavizar el efecto
+    weights = {race: np.sqrt(len(train_df) / (len(race_counts) * count))
+               for race, count in race_counts.items()}
+    return train_df['race_group'].map(weights).values
 
 def main():
     # Obtener los DataFrames desde el módulo externo
     df_train, df_submit = main_rsf.get_dfs()
 
-    df_train = main_rsf.get_relevant_features(df_train,0.005)
+    #df_train = main_rsf.get_relevant_features(df_train,0.005)
 
     # Generar folds con el dataset de entrenamiento
     folds = get_fair_kfolds(df_train)
@@ -52,10 +43,11 @@ def main():
         train_df = df_train.iloc[fold['train_idx']]
         test_df = df_train.iloc[fold['test_idx']]
 
+        weights = get_balanced_weights(train_df)
         print(f"Fold {i + 1} - Train shape: {train_df.shape}, Test shape: {test_df.shape}")
 
         # Entrenar el modelo
-        main_rsf.train(model, train_df)
+        main_rsf.train(model, train_df, weights)
 
         # Obtener predicciones
         predictions = main_rsf.predict2(model, test_df)

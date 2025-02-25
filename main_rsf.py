@@ -8,9 +8,9 @@ from sksurv.ensemble import RandomSurvivalForest
 import pandas.api.types
 from lifelines.utils import concordance_index
 
-def drop_top_n_corr(df, n, col):
+def get_top_n_corr(df, n=10, col='efs_time', exclude=None):
     c = df.corr()[col].abs().drop(col).sort_values(ascending=False)
-    return df.drop(columns=c.head(n).index.tolist())
+    return c.head(n).index.tolist()
 
 
 def encoding_binary(df, col):
@@ -69,8 +69,43 @@ def impute_weighted_nan(df, col):
 
     return df
 
+
+
 def scale(df,col):
     return (df[col] - df[col].min()) / (df[col].max() - df[col].min())
+
+
+from lifelines.utils import concordance_index
+
+
+def evaluate_fairness_by_race(model, X, durations, events, race_groups):
+    """
+    Evalúa el c-index para cada grupo racial.
+
+    Parámetros:
+    - model: Modelo RandomSurvivalForest entrenado
+    - X: Features
+    - durations: Tiempos de supervivencia/evento
+    - events: Indicador de evento (1) o censura (0)
+    - race_groups: Array con los grupos raciales
+
+    Retorna:
+    - Dictionary con c-index por grupo racial
+    """
+    scores = {}
+    predictions = model.predict(X)
+
+    for group in np.unique(race_groups):
+        mask = race_groups == group
+        group_cindex = concordance_index(
+            durations[mask],
+            -predictions[mask],  # Negativo porque mayor risk score indica mayor riesgo
+            events[mask]
+        )
+        scores[group] = group_cindex
+
+    return scores
+
 
 
 
