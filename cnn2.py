@@ -1,13 +1,13 @@
-from keras import Sequential, regularizers
-from keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from keras.layers import Dense, Dropout
+import cnn_lib
+import numpy as np
 import tensorflow as tf
+from keras import Sequential, regularizers, Input, Model
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from keras.layers import Dense, Dropout, Activation, GlobalAveragePooling1D
 from keras.optimizers import Adam
 from tensorflow.keras import backend as K
+from keras.layers import Add, Activation, BatchNormalization, Conv1D
 
-import cnn_lib
-import pandas as pd
-import numpy as np
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 
@@ -88,16 +88,13 @@ def cox_partial_log_likelihood_tf(y_true, y_pred):
     # Queremos minimizar la pérdida => retornamos la negativa
     return -partial_ll
 
-
 def combined_loss(y_true, y_pred):
     loss_cox = cox_partial_log_likelihood_tf(y_true, y_pred)
     loss_cindex = stratified_c_index_loss(y_true, y_pred)
-    # Combinar 50% y 50%
-    return 0.10 * loss_cox + 0.90 * loss_cindex
 
+    return 0.20 * loss_cox + 0.80 * loss_cindex
 
-
-def create_model(num_features):
+def create_basic_model(num_features):
     model = Sequential()
     model.add(Dense(64, input_dim=num_features, activation='relu',
                     kernel_regularizer=regularizers.l2(0.001)))
@@ -110,8 +107,7 @@ def create_model(num_features):
 
     return model
 
-
-def train(model, X_trn, y_trn, X_val, y_val,epochs=50):
+def train(model, X_trn, y_trn, X_val, y_val, epochs=50):
     # Convertir los DataFrames a arrays numpy con tipos de datos adecuados
     # Para las características
     X_trn_np = X_trn.values.astype('float32')
@@ -140,13 +136,112 @@ def train(model, X_trn, y_trn, X_val, y_val,epochs=50):
         X_trn_np,
         y_trn_np,
         epochs=epochs,
-        batch_size=32,
+        batch_size=16,
         validation_data=(X_val_np, y_val_np),
-        verbose=1,
+        verbose=2,
         callbacks=[reduce_lr, early_stop]
     )
 
     return history
+
+def dense_residual_block(x, units, dropout_rate=0.2):
+    # Guardar input para la conexión residual
+    residual = x
+
+    # Transformación densa
+    y = Dense(units)(x)
+    y = BatchNormalization()(y)
+    y = Activation('relu')(y)
+    y = Dropout(dropout_rate)(y)
+
+    y = Dense(units)(y)
+    y = BatchNormalization()(y)
+
+    # Si las dimensiones no coinciden, proyectar residual
+    if int(residual.shape[-1]) != units:
+        residual = Dense(units)(residual)
+        residual = BatchNormalization()(residual)
+
+    # Añadir conexión residual
+    y = Add()([y, residual])
+    y = Activation('relu')(y)
+
+    return y
+
+def build_enhanced_resnet(input_dim):
+    inputs = Input(shape=(input_dim,))
+
+    # Primera capa densa (mantenemos los 64 nodos pero añadimos BatchNormalization)
+    x = Dense(64, kernel_regularizer=regularizers.l2(0.001))(inputs)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Dropout(0.2)(x)
+
+    # Primer bloque residual
+    residual_1 = x
+    x = Dense(64, kernel_regularizer=regularizers.l2(0.001))(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Dropout(0.2)(x)
+    x = Dense(64, kernel_regularizer=regularizers.l2(0.001))(x)
+    x = BatchNormalization()(x)
+    x = Add()([x, residual_1])
+    x = Activation('relu')(x)
+
+    # Capa de transición con reducción
+    x = Dense(32, kernel_regularizer=regularizers.l2(0.001))(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Dropout(0.2)(x)
+
+    # Segundo bloque residual más pequeño
+    residual_2 = x
+    x = Dense(32, kernel_regularizer=regularizers.l2(0.001))(x)
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = Dense(32, kernel_regularizer=regularizers.l2(0.001))(x)
+    x = BatchNormalization()(x)
+    x = Add()([x, residual_2])
+    x = Activation('relu')(x)
+
+    # Capa final para regresión
+    x = Dense(1, activation='linear')(x)
+
+    model = Model(inputs, x)
+
+    optimizer = Adam(learning_rate=0.0001)
+    model.compile(optimizer=optimizer, loss=combined_loss)
+
+    return model
+
+def build_simplified_resnet(input_dim):
+    inputs = Input(shape=(input_dim,))
+
+    # Primera capa densa (como en tu CNN)
+    x = Dense(64, activation='relu', kernel_regularizer=regularizers.l2(0.001))(inputs)
+    x = Dropout(0.2)(x)
+
+    # Un solo bloque residual simplificado
+    residual = x  # Guardar para la conexión residual
+
+    # Segunda capa similar a tu CNN
+    x = Dense(32, activation='relu', kernel_regularizer=regularizers.l2(0.001))(x)
+
+    # Proyección del residual para hacer coincidir dimensiones
+    residual = Dense(32)(residual)
+
+    # Conexión residual
+    x = Add()([x, residual])
+
+    # Capa final para regresión
+    x = Dense(1, activation='linear')(x)
+
+    model = Model(inputs, x)
+
+    optimizer = Adam(learning_rate=0.0001)
+    model.compile(optimizer=optimizer, loss=combined_loss)
+
+    return model
 
 def create_stratification_column(df, columns=['efs', 'race_group']):
     temp_df = df[columns].astype(str)
@@ -157,8 +252,9 @@ def create_stratification_column(df, columns=['efs', 'race_group']):
 
     return strat_col
 
-
 def main():
+    print("GPUs disponibles:", tf.config.list_physical_devices('GPU'))
+
     train_data, submit_data = cnn_lib.get_defs(exclude_columns=['ID','efs','efs_time','race_group'])
 
     label_encoder = LabelEncoder()
@@ -188,9 +284,12 @@ def main():
         # Verificamos la distribución en cada fold
         train_efs_dist = train_data.iloc[train_idx]['efs'].value_counts(normalize=True)
         train_race_dist = train_data.iloc[train_idx]['race_group'].value_counts(normalize=True)
+        #train_efs_time_cat_dist = train_data.iloc[train_idx]['efs_time_cat'].value_counts(normalize=True)
 
         val_efs_dist = train_data.iloc[val_idx]['efs'].value_counts(normalize=True)
         val_race_dist = train_data.iloc[val_idx]['race_group'].value_counts(normalize=True)
+        #val_efs_time_cat_dist = train_data.iloc[val_idx]['efs_time_cat'].value_counts(normalize=True)
+
 
         print(f"\nFold {fold + 1}:")
         print(f"Train set: {len(train_idx)} samples")
@@ -206,6 +305,10 @@ def main():
         print("\nDistribución de race_group en validación:")
         print(val_race_dist)
 
+        #print("\nDistribución de race_group en entrenamiento:")
+        #print(train_efs_time_cat_dist)
+        #print("\nDistribución de race_group en validación:")
+        #print(val_efs_time_cat_dist)
 
     # Ejemplo de entrenamiento en todos los folds
     results = []
@@ -226,17 +329,27 @@ def main():
         X_val = train_data.iloc[val_idx].drop(columns=['ID', 'efs', 'efs_time', 'race_group'])
         y_val = train_data.iloc[val_idx][['efs', 'efs_time', 'race_group']]
 
-        model = create_model(X_train.shape[1])
-        train(model, X_train, y_train, X_val, y_val,500)
+        #model = create_model(X_train.shape[1])
+        model = create_basic_model(X_train.shape[1])
+        train(model, X_train, y_train, X_val, y_val,100)
 
         prediction=model.predict(X_val.values.astype('float32'))
         y_val['ID'] = train_data.iloc[val_idx]['ID']
 
         score=cnn_lib.get_score(y_val,prediction.flatten())
+        results.append(score)
         print('scoring....'+str(score))
         pass
     # Aquí puedes combinar los resultados, promediar métricas, etc.
 
+    # Calcular estadísticas después de recopilar todos los scores
+    promedio = np.mean(results)
+    desviacion = np.std(results)
+    maximo = np.max(results)
+    minimo = np.min(results)
+
+    print(f"C-index promedio: {promedio:.4f} ± {desviacion:.4f}")
+    print(f"Rango: [{minimo:.4f}, {maximo:.4f}]")
 
 if __name__ == "__main__":
     main()

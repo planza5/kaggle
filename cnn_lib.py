@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from lifelines.utils import concordance_index
+from sklearn.preprocessing import LabelEncoder
 
 
 def score(solution: pd.DataFrame, submission: pd.DataFrame) -> float:
@@ -38,26 +39,7 @@ def get_score(solution, prediction):
     return score(solution.copy(),prediction)
 
 def get_defs(csv1: str = 'train.csv', csv2: str = 'test.csv', exclude_columns: list = None):
-    """
-    Función que lee dos archivos CSV y devuelve dos dataframes procesados.
 
-    Parámetros:
-        csv1 (str, opcional): Ruta al primer archivo CSV. Por defecto 'train.csv'.
-        csv2 (str, opcional): Ruta al segundo archivo CSV. Por defecto 'test.csv'.
-        exclude_columns (list, opcional): Lista de nombres de columnas que se excluirán del procesamiento.
-                                          Por defecto se considera una lista vacía.
-
-    Operaciones realizadas sobre las columnas (excepto las excluidas):
-        1. Se concatenan verticalmente las columnas a procesar de ambos archivos para aplicar un one-hot encoding conjunto
-           sobre las columnas no numéricas.
-        2. Se separa el dataframe combinado para obtener dos dataframes con las mismas columnas.
-        3. Se reemplazan los NaN por la media de cada columna y se normalizan los valores (de 0 a 1) de forma independiente.
-        4. Se reincorporan las columnas excluidas sin modificaciones.
-
-    Retorna:
-        Tuple con dos dataframes procesados.
-    """
-    # Si exclude_columns es None, se asigna una lista vacía.
     if exclude_columns is None:
         exclude_columns = []
 
@@ -82,10 +64,13 @@ def get_defs(csv1: str = 'train.csv', csv2: str = 'test.csv', exclude_columns: l
     # Concatenar verticalmente para aplicar un one-hot encoding conjunto y que ambos dataframes tengan las mismas columnas
     combined = pd.concat([df1_proc, df2_proc], axis=0, ignore_index=True)
 
+
+
     # Detectar columnas no numéricas y aplicar one-hot encoding (incluyendo dummy para NaNs)
     non_numeric_cols = combined.select_dtypes(include=['object', 'category']).columns.tolist()
     if non_numeric_cols:
         combined = pd.get_dummies(combined, columns=non_numeric_cols, dummy_na=True)
+
 
     # Dividir nuevamente el dataframe combinado en los dos conjuntos originales
     len_df1 = df1_proc.shape[0]
